@@ -1,4 +1,4 @@
-name = Simple Access
+name = Simple Access Plus
 description = Provides simple hide/view access for nodes.
 backdrop = 1.x
 type = module

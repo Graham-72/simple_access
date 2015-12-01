@@ -94,6 +94,15 @@ function simple_access_menu()
     'type' => MENU_LOCAL_ACTION,
     'file' => 'simple_access.admin.inc',
   );
+	  $items['admin/config/content/simple_access/profiles/apply'] = array(
+    'title' => 'Apply profile',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('simple_access_apply_profile_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('manage simple access'),
+    'type' => MENU_LOCAL_ACTION,
+    'file' => 'simple_access.admin.inc',
+  );
   $items['admin/config/content/simple_access/profiles/%simple_access_profile/edit'] = array(
     'title' => 'Edit Profile',
     'page callback' => 'backdrop_get_form',
@@ -276,7 +285,8 @@ function simple_access_node_save($node)
     ->execute();
   if (isset($node->simple_access_profiles)) {
     foreach (array_filter($node->simple_access_profiles) as $pid) {
-      db_insert('simple_access_profiles_node')
+      db_merge('simple_access_profiles_node')
+			  ->key(array('nid' => $node->nid))
         ->fields(array(
           'nid' => $node->nid,
           'pid' => $pid,
@@ -285,6 +295,82 @@ function simple_access_node_save($node)
     }
   }
 }
+
+/**
+ * Apply node information.
+ */
+function simple_access_node_save_apply($nodeprofile) {
+  $nid = $nodeprofile['nid'];
+	$pid = $nodeprofile['pid'];
+	$nodetype = $nodeprofile['type'];
+
+
+  //check whether this node has an entry in simple_access_owner
+	$owners = db_select('simple_access_owner', 'o')
+    ->fields('o', array('nid', 'sa_view', 'sa_update', 'sa_delete'))
+    ->condition('nid', $nid)
+    ->execute()
+    ->fetchAllAssoc('nid', PDO::FETCH_ASSOC);
+
+	//if there is no existing entry, insert defaults
+	$defaults = config_get('simple_access.settings','simple_access_'.$nodetype);
+	if(!$owners){
+	  if($defaults){
+	    db_insert('simple_access_owner')
+        ->fields(array(
+			    'nid' => $nid,
+          'sa_view' => $defaults['simple_access_owner']['sa_view'],
+          'sa_update' => $defaults['simple_access_owner']['sa_update'],
+          'sa_delete' => $defaults['simple_access_owner']['sa_delete'],
+        ))
+        ->execute();
+		 }else{
+		   db_insert('simple_access_owner')
+        ->fields(array(
+			    'nid' => $nid,
+          'sa_view' => 1,
+          'sa_update' => 1,
+          'sa_delete' => 1,
+        ))
+        ->execute();
+			}
+	}
+
+	//now replace in simple_access_node - delete then insert
+	  db_delete('simple_access_node')
+    ->condition('nid', $nid)
+    ->execute();
+
+	//need to insert a row for each value of gid within profile
+	//we need an input that is an array called $thisprofile
+	//from config we can get the groups/grants for the profile
+	//NO - have to use table simple_access_profile_access
+	//from table simple_access_profiles_access we can get
+	//the view/update/delete settings for each gid for this pid
+	//$pids = $defaults[simple_access_profiles];
+		$access = db_select('simple_access_profiles_access','g')
+		->fields('g', array('gid','sa_view','sa_update','sa_delete'))
+    ->condition('pid', $pid)
+    ->execute()
+    ->fetchAllAssoc('gid', PDO::FETCH_ASSOC);
+
+	//$access contains the default access settings for this profile-grant
+	$gid = array();
+	foreach ($access as $gid){
+    db_insert('simple_access_node')
+      ->fields(array(
+          'nid' => $nid,
+          'gid' => $gid['gid'],
+          'sa_view' => $gid['sa_view'],
+          'sa_update' => $gid['sa_update'],
+          'sa_delete' => $gid['sa_delete'],
+      ))
+      ->execute();
+   }
+
+
+}
+
 
 /**
  * Implements hook_node_delete().
